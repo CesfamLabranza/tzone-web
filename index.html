@@ -1,164 +1,196 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Analizador de Termografía TZone</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analizador de Termografía TZone</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+}
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            padding: 20px;
-            background: #f2f2f2;
-        }
-        h2 {
-            margin-top: 30px;
-        }
-        #resultadoTabla {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        #resultadoTabla th,
-        #resultadoTabla td {
-            border: 1px solid #aaa;
-            padding: 8px;
-            text-align: center;
-            background: white;
-        }
-        #graficoContainer {
-            width: 95%;
-            height: 400px;
-            margin-top: 30px;
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-        }
-        .card {
-            background: white;
-            padding: 15px;
-            margin-top: 20px;
-            border-radius: 10px;
-        }
-    </style>
+.container {
+    max-width: 1100px;
+    margin: auto;
+}
+
+h1 {
+    font-size: 28px;
+    margin-bottom: 10px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+table, th, td {
+    border: 1px solid #ccc;
+}
+
+th {
+    background: #f5f5f5;
+    padding: 8px;
+}
+
+td {
+    padding: 6px;
+    text-align: center;
+}
+
+/* 🔴 Fila con máxima temperatura */
+.max-temp {
+    background-color: rgba(255, 80, 80, 0.35) !important;
+    font-weight: bold;
+}
+
+/* 🔵 Fila con mínima temperatura */
+.min-temp {
+    background-color: rgba(80, 130, 255, 0.35) !important;
+    font-weight: bold;
+}
+
+.result-box {
+    background: #f1f1f1;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+</style>
 </head>
+
 <body>
+<div class="container">
 
-<h1>📈 Analizador de Termografía TZone</h1>
+<h1>📉 Analizador de Termografía TZone</h1>
 
-<input type="file" id="fileInput" accept="application/pdf">
+<input type="file" id="pdfInput">
 <button onclick="procesarPDF()">Procesar PDF</button>
 
-<div id="graficoContainer" style="display:none;">
-    <canvas id="grafico"></canvas>
-</div>
+<canvas id="grafico" style="margin-top: 25px;"></canvas>
 
-<div id="estadisticas" class="card" style="display:none;">
-    <h2>Resultados Generales</h2>
-    <p id="maxTemp"></p>
-    <p id="minTemp"></p>
-</div>
+<div id="resultadosGenerales" class="result-box"></div>
 
 <h2>Resultados</h2>
-
-<table id="resultadoTabla">
-    <thead>
-        <tr>
-            <th>Fecha</th>
-            <th>Hora</th>
-            <th>Temp (°C)</th>
-            <th>Humedad (%)</th>
-        </tr>
-    </thead>
-    <tbody></tbody>
+<table id="tablaResultados">
+<thead>
+    <tr>
+        <th>Fecha</th>
+        <th>Hora</th>
+        <th>Temp (°C)</th>
+        <th>Humedad (%)</th>
+    </tr>
+</thead>
+<tbody></tbody>
 </table>
 
+</div>
+
 <script>
-const API_URL = "https://tzone-backend-gqhn.onrender.com/procesar_pdf";
-
 async function procesarPDF() {
-    const file = document.getElementById("fileInput").files[0];
-
-    if (!file) {
-        alert("Seleccione un PDF primero.");
+    const archivo = document.getElementById("pdfInput").files[0];
+    if (!archivo) {
+        alert("Seleccione un PDF primero");
         return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
+    let formData = new FormData();
+    formData.append("file", archivo);
 
-    const res = await fetch(API_URL, {
+    let resp = await fetch("https://tzone-backend-gqhn.onrender.com/procesar", {
         method: "POST",
         body: formData
     });
 
-    const json = await res.json();
-
-    if (!json.datos || json.datos.length === 0) {
-        alert("No se pudieron leer datos del PDF.");
+    let data = await resp.json();
+    if (!data.ok) {
+        alert(data.error);
         return;
     }
 
-    mostrarTabla(json.datos);
-    generarGrafico(json.datos);
-    calcularEstadisticas(json.datos);
+    const registros = data.registros;
+
+    mostrarTabla(registros);
+    generarGrafico(registros);
+    calcularExtremos(registros);
 }
 
-function mostrarTabla(datos) {
-    const tbody = document.querySelector("#resultadoTabla tbody");
+function mostrarTabla(registros) {
+    let tbody = document.querySelector("#tablaResultados tbody");
     tbody.innerHTML = "";
 
-    datos.forEach(x => {
-        const fila = `
-            <tr>
-                <td>${x.fecha}</td>
-                <td>${x.hora}</td>
-                <td>${x.temp}</td>
-                <td>${x.rh}</td>
-            </tr>`;
-        tbody.innerHTML += fila;
+    registros.forEach((r, i) => {
+        let fila = document.createElement("tr");
+        fila.setAttribute("data-temp", r.Temp_C);
+        fila.setAttribute("data-index", i);
+
+        fila.innerHTML = `
+            <td>${r.Fecha}</td>
+            <td>${r.Hora}</td>
+            <td>${r.Temp_C}</td>
+            <td>${r.RH}</td>
+        `;
+        tbody.appendChild(fila);
     });
 }
 
-function generarGrafico(datos) {
-    document.getElementById("graficoContainer").style.display = "block";
-
+function generarGrafico(registros) {
     const ctx = document.getElementById("grafico").getContext("2d");
 
-    if (window.miGrafico) window.miGrafico.destroy();
+    if (window.miGrafico instanceof Chart) {
+        window.miGrafico.destroy();
+    }
+
+    const labels = registros.map(r => r.Fecha + " " + r.Hora);
+    const temp = registros.map(r => r.Temp_C);
+    const hum = registros.map(r => r.RH);
 
     window.miGrafico = new Chart(ctx, {
         type: "line",
         data: {
-            labels: datos.map(x => `${x.fecha} ${x.hora}`),
+            labels: labels,
             datasets: [
                 {
                     label: "Temperatura (°C)",
-                    data: datos.map(x => x.temp),
+                    data: temp,
                     borderColor: "red",
-                    borderWidth: 2
+                    backgroundColor: "rgba(255,0,0,0.2)"
                 },
                 {
                     label: "Humedad (%)",
-                    data: datos.map(x => x.rh),
+                    data: hum,
                     borderColor: "blue",
-                    borderWidth: 2
+                    backgroundColor: "rgba(0,0,255,0.2)"
                 }
             ]
         }
     });
 }
 
-function calcularEstadisticas(datos) {
-    let max = Math.max(...datos.map(x => x.temp));
-    let min = Math.min(...datos.map(x => x.temp));
+function calcularExtremos(registros) {
+    let max = registros.reduce((a, b) => a.Temp_C > b.Temp_C ? a : b);
+    let min = registros.reduce((a, b) => a.Temp_C < b.Temp_C ? a : b);
 
-    document.getElementById("estadisticas").style.display = "block";
-    document.getElementById("maxTemp").innerText = "🌡️ Temperatura máxima: " + max + " °C";
-    document.getElementById("minTemp").innerText = "❄️ Temperatura mínima: " + min + " °C";
+    document.getElementById("resultadosGenerales").innerHTML = `
+        <h3>Resultados Generales</h3>
+        🔥 <b>Temperatura máxima:</b> ${max.Temp_C} °C  
+        <br>📅 ${max.Fecha} — 🕒 ${max.Hora} — 💧 ${max.RH} %
+        <br><br>
+        ❄️ <b>Temperatura mínima:</b> ${min.Temp_C} °C  
+        <br>📅 ${min.Fecha} — 🕒 ${min.Hora} — 💧 ${min.RH} %
+    `;
+
+    // 🔴 Marcar filas de máximos y mínimos
+    document.querySelectorAll("#tablaResultados tbody tr").forEach(tr => {
+        let temp = parseFloat(tr.getAttribute("data-temp"));
+        if (temp === max.Temp_C) tr.classList.add("max-temp");
+        if (temp === min.Temp_C) tr.classList.add("min-temp");
+    });
 }
 </script>
-
 </body>
 </html>

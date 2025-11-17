@@ -2,95 +2,68 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Analizador de Termografía TZone</title>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
 body {
-    font-family: Arial, sans-serif;
-    margin: 20px;
+    font-family: Arial;
+    padding: 20px;
 }
-
-.container {
-    max-width: 1100px;
-    margin: auto;
-}
-
-h1 {
-    font-size: 28px;
-    margin-bottom: 10px;
-}
-
 table {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 15px;
+    margin-top: 20px;
 }
-
-table, th, td {
+th, td {
     border: 1px solid #ccc;
-}
-
-th {
-    background: #f5f5f5;
-    padding: 8px;
-}
-
-td {
     padding: 6px;
     text-align: center;
 }
-
-/* 🔴 Fila con máxima temperatura */
-.max-temp {
-    background-color: rgba(255, 80, 80, 0.35) !important;
+.maximo {
+    background-color: #ffdddd !important;
     font-weight: bold;
+    color: red;
 }
-
-/* 🔵 Fila con mínima temperatura */
-.min-temp {
-    background-color: rgba(80, 130, 255, 0.35) !important;
+.minimo {
+    background-color: #ddeaff !important;
     font-weight: bold;
-}
-
-.result-box {
-    background: #f1f1f1;
-    padding: 15px;
-    border-radius: 8px;
-    margin: 20px 0;
+    color: blue;
 }
 </style>
 </head>
 
 <body>
-<div class="container">
 
-<h1>📉 Analizador de Termografía TZone</h1>
+<h2>📉 Analizador de Termografía TZone</h2>
 
-<input type="file" id="pdfInput">
+<input type="file" id="pdfInput" accept="application/pdf">
 <button onclick="procesarPDF()">Procesar PDF</button>
 
-<canvas id="grafico" style="margin-top: 25px;"></canvas>
+<br><br>
 
-<div id="resultadosGenerales" class="result-box"></div>
+<canvas id="grafico" height="120"></canvas>
 
-<h2>Resultados</h2>
-<table id="tablaResultados">
+<h3>Resultados Generales</h3>
+<div id="extremos"></div>
+
+<h3>Resultados</h3>
+<table id="tabla">
 <thead>
-    <tr>
-        <th>Fecha</th>
-        <th>Hora</th>
-        <th>Temp (°C)</th>
-        <th>Humedad (%)</th>
-    </tr>
+<tr>
+    <th>Fecha</th>
+    <th>Hora</th>
+    <th>Temp (°C)</th>
+    <th>Humedad (%)</th>
+</tr>
 </thead>
 <tbody></tbody>
 </table>
 
-</div>
-
 <script>
+let chart;
+
 async function procesarPDF() {
     const archivo = document.getElementById("pdfInput").files[0];
     if (!archivo) {
@@ -98,99 +71,118 @@ async function procesarPDF() {
         return;
     }
 
-    let formData = new FormData();
-    formData.append("file", archivo);
+    let form = new FormData();
+    form.append("file", archivo);
 
-    let resp = await fetch("https://tzone-backend-gqhn.onrender.com/procesar", {
-        method: "POST",
-        body: formData
-    });
+    try {
+        let resp = await fetch("https://tzone-backend-gqhn.onrender.com/procesar", {
+            method: "POST",
+            body: form
+        });
 
-    let data = await resp.json();
-    if (!data.ok) {
-        alert(data.error);
-        return;
+        let data = await resp.json();
+
+        if (!data.ok) {
+            alert("Error: " + data.error);
+            return;
+        }
+
+        const registros = data.registros;
+
+        mostrarTabla(registros);
+        generarGrafico(registros);
+        calcularExtremos(registros);
+
+    } catch (e) {
+        alert("Error de conexión con el servidor: " + e.message);
     }
-
-    const registros = data.registros;
-
-    mostrarTabla(registros);
-    generarGrafico(registros);
-    calcularExtremos(registros);
 }
+
+// ------------------------------
+// TABLA
+// ------------------------------
 
 function mostrarTabla(registros) {
-    let tbody = document.querySelector("#tablaResultados tbody");
+    const tbody = document.querySelector("#tabla tbody");
     tbody.innerHTML = "";
 
-    registros.forEach((r, i) => {
-        let fila = document.createElement("tr");
-        fila.setAttribute("data-temp", r.Temp_C);
-        fila.setAttribute("data-index", i);
-
-        fila.innerHTML = `
-            <td>${r.Fecha}</td>
-            <td>${r.Hora}</td>
-            <td>${r.Temp_C}</td>
-            <td>${r.RH}</td>
-        `;
-        tbody.appendChild(fila);
+    registros.forEach(r => {
+        tbody.innerHTML += `
+        <tr>
+            <td>${r.fecha}</td>
+            <td>${r.hora}</td>
+            <td>${r.temp}</td>
+            <td>${r.humedad}</td>
+        </tr>`;
     });
 }
 
+// ------------------------------
+// GRAFICO
+// ------------------------------
+
 function generarGrafico(registros) {
-    const ctx = document.getElementById("grafico").getContext("2d");
 
-    if (window.miGrafico instanceof Chart) {
-        window.miGrafico.destroy();
-    }
+    const labels = registros.map(r => r.fecha + " " + r.hora);
+    const temps = registros.map(r => r.temp);
+    const hums = registros.map(r => r.humedad);
 
-    const labels = registros.map(r => r.Fecha + " " + r.Hora);
-    const temp = registros.map(r => r.Temp_C);
-    const hum = registros.map(r => r.RH);
+    const ctx = document.getElementById("grafico");
 
-    window.miGrafico = new Chart(ctx, {
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
         type: "line",
         data: {
             labels: labels,
             datasets: [
                 {
                     label: "Temperatura (°C)",
-                    data: temp,
+                    data: temps,
                     borderColor: "red",
-                    backgroundColor: "rgba(255,0,0,0.2)"
+                    backgroundColor: "rgba(255,0,0,0.3)"
                 },
                 {
                     label: "Humedad (%)",
-                    data: hum,
+                    data: hums,
                     borderColor: "blue",
-                    backgroundColor: "rgba(0,0,255,0.2)"
+                    backgroundColor: "rgba(0,0,255,0.3)"
                 }
             ]
         }
     });
 }
 
-function calcularExtremos(registros) {
-    let max = registros.reduce((a, b) => a.Temp_C > b.Temp_C ? a : b);
-    let min = registros.reduce((a, b) => a.Temp_C < b.Temp_C ? a : b);
+// ------------------------------
+// MAXIMO Y MINIMO
+// ------------------------------
 
-    document.getElementById("resultadosGenerales").innerHTML = `
-        <h3>Resultados Generales</h3>
-        🔥 <b>Temperatura máxima:</b> ${max.Temp_C} °C  
-        <br>📅 ${max.Fecha} — 🕒 ${max.Hora} — 💧 ${max.RH} %
-        <br><br>
-        ❄️ <b>Temperatura mínima:</b> ${min.Temp_C} °C  
-        <br>📅 ${min.Fecha} — 🕒 ${min.Hora} — 💧 ${min.RH} %
+function calcularExtremos(registros) {
+
+    let max = registros.reduce((a,b) => a.temp > b.temp ? a : b);
+    let min = registros.reduce((a,b) => a.temp < b.temp ? a : b);
+
+    document.getElementById("extremos").innerHTML = `
+        <p>🔥 Máxima: <b>${max.temp}°C</b> — ${max.fecha} ${max.hora}, humedad: ${max.humedad}%</p>
+        <p>❄️ Mínima: <b>${min.temp}°C</b> — ${min.fecha} ${min.hora}, humedad: ${min.humedad}%</p>
     `;
 
-    // 🔴 Marcar filas de máximos y mínimos
-    document.querySelectorAll("#tablaResultados tbody tr").forEach(tr => {
-        let temp = parseFloat(tr.getAttribute("data-temp"));
-        if (temp === max.Temp_C) tr.classList.add("max-temp");
-        if (temp === min.Temp_C) tr.classList.add("min-temp");
+    // marcar tabla
+    const filas = document.querySelectorAll("#tabla tbody tr");
+    filas.forEach(fila => {
+        const t = parseFloat(fila.children[2].innerText);
+        const fecha = fila.children[0].innerText;
+        const hora = fila.children[1].innerText;
+
+        if (t === max.temp && fecha === max.fecha && hora === max.hora) {
+            fila.classList.add("maximo");
+        }
+        if (t === min.temp && fecha === min.fecha && hora === min.hora) {
+            fila.classList.add("minimo");
+        }
     });
 }
 </script>
+
 </body>
 </html>
